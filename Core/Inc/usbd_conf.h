@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 /* Includes ------------------------------------------------------------------*/
-#include "stm32fxxx.h"  /* replace 'stm32xxx' with your HAL driver header filename, ex: stm32f4xx.h */
+#include "stm32h7xx.h"  /* replace 'stm32xxx' with your HAL driver header filename, ex: stm32f4xx.h */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
