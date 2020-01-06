@@ -42,9 +42,9 @@ extern "C" {
   * @{
   */
 #define TEMPLATE_EPIN_ADDR                 0x81
-#define TEMPLATE_EPIN_SIZE                 0x10
+#define TEMPLATE_EPOUT_ADDR                0x01
 
-#define USB_TEMPLATE_CONFIG_DESC_SIZ       64
+#define USB_TEMPLATE_CONFIG_DESC_SIZ       32
 
 /**
   * @}
