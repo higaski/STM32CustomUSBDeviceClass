@@ -24,6 +24,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "stream_buffer.h"
 #include "usbd_core.h"
 #include "usbd_desc.h"
 #include "usbd_class.h"
@@ -52,6 +53,7 @@ PCD_HandleTypeDef hpcd_USB_OTG_FS;
 osThreadId_t defaultTaskHandle;
 /* USER CODE BEGIN PV */
 USBD_HandleTypeDef hUsbDeviceFS;
+StreamBufferHandle_t xStreamBuffer = NULL;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -121,7 +123,7 @@ int main(void)
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
-  /* add queues, ... */
+  xStreamBuffer = xStreamBufferCreate(512, 1);
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */

@@ -36,6 +36,9 @@
   */
 
 /* Includes ------------------------------------------------------------------*/
+#include <stdbool.h>
+#include "cmsis_os.h"
+#include "stream_buffer.h"
 #include "usbd_class.h"
 #include "usbd_ctlreq.h"
 
@@ -82,33 +85,19 @@
   * @{
   */
 
-
 static uint8_t  USBD_TEMPLATE_Init(USBD_HandleTypeDef *pdev,
                                    uint8_t cfgidx);
 
 static uint8_t  USBD_TEMPLATE_DeInit(USBD_HandleTypeDef *pdev,
                                      uint8_t cfgidx);
 
-static uint8_t  USBD_TEMPLATE_Setup(USBD_HandleTypeDef *pdev,
-                                    USBD_SetupReqTypedef *req);
-
-static uint8_t  *USBD_TEMPLATE_GetCfgDesc(uint16_t *length);
-
-static uint8_t  *USBD_TEMPLATE_GetDeviceQualifierDesc(uint16_t *length);
-
 static uint8_t  USBD_TEMPLATE_DataIn(USBD_HandleTypeDef *pdev, uint8_t epnum);
 
 static uint8_t  USBD_TEMPLATE_DataOut(USBD_HandleTypeDef *pdev, uint8_t epnum);
 
-static uint8_t  USBD_TEMPLATE_EP0_RxReady(USBD_HandleTypeDef *pdev);
+static uint8_t  *USBD_TEMPLATE_GetCfgDesc(uint16_t *length);
 
-static uint8_t  USBD_TEMPLATE_EP0_TxReady(USBD_HandleTypeDef *pdev);
-
-static uint8_t  USBD_TEMPLATE_SOF(USBD_HandleTypeDef *pdev);
-
-static uint8_t  USBD_TEMPLATE_IsoINIncomplete(USBD_HandleTypeDef *pdev, uint8_t epnum);
-
-static uint8_t  USBD_TEMPLATE_IsoOutIncomplete(USBD_HandleTypeDef *pdev, uint8_t epnum);
+static uint8_t  *USBD_TEMPLATE_GetDeviceQualifierDesc(uint16_t *length);
 
 /**
   * @}
@@ -117,22 +106,25 @@ static uint8_t  USBD_TEMPLATE_IsoOutIncomplete(USBD_HandleTypeDef *pdev, uint8_t
 /** @defgroup USBD_TEMPLATE_Private_Variables
   * @{
   */
+volatile bool data_in_busy = false;
+uint8_t data_out_buffer[512] = {};
+extern StreamBufferHandle_t xStreamBuffer;
 
 USBD_ClassTypeDef  USBD_TEMPLATE_ClassDriver =
 {
   USBD_TEMPLATE_Init,
   USBD_TEMPLATE_DeInit,
-  USBD_TEMPLATE_Setup,
-  USBD_TEMPLATE_EP0_TxReady,
-  USBD_TEMPLATE_EP0_RxReady,
+  NULL,
+  NULL,
+  NULL,
   USBD_TEMPLATE_DataIn,
   USBD_TEMPLATE_DataOut,
-  USBD_TEMPLATE_SOF,
-  USBD_TEMPLATE_IsoINIncomplete,
-  USBD_TEMPLATE_IsoOutIncomplete,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
   USBD_TEMPLATE_GetCfgDesc,
-  USBD_TEMPLATE_GetCfgDesc,
-  USBD_TEMPLATE_GetCfgDesc,
+  NULL,
   USBD_TEMPLATE_GetDeviceQualifierDesc,
 };
 
@@ -218,10 +210,10 @@ __ALIGN_BEGIN static uint8_t USBD_TEMPLATE_DeviceQualifierDesc[USB_LEN_DEV_QUALI
 static uint8_t  USBD_TEMPLATE_Init(USBD_HandleTypeDef *pdev,
                                    uint8_t cfgidx)
 {
-  uint8_t ret = 0;
-
-
-  return ret;
+  USBD_LL_OpenEP(pdev, TEMPLATE_EPIN_ADDR, USBD_EP_TYPE_BULK, USB_FS_MAX_PACKET_SIZE);
+  USBD_LL_OpenEP(pdev, TEMPLATE_EPOUT_ADDR, USBD_EP_TYPE_BULK, USB_FS_MAX_PACKET_SIZE);
+  USBD_LL_PrepareReceive(pdev, TEMPLATE_EPOUT_ADDR, data_out_buffer, USB_FS_MAX_PACKET_SIZE);
+  return USBD_OK;
 }
 
 /**
@@ -234,53 +226,50 @@ static uint8_t  USBD_TEMPLATE_Init(USBD_HandleTypeDef *pdev,
 static uint8_t  USBD_TEMPLATE_DeInit(USBD_HandleTypeDef *pdev,
                                      uint8_t cfgidx)
 {
+  USBD_LL_CloseEP(pdev, TEMPLATE_EPIN_ADDR);
+  USBD_LL_CloseEP(pdev, TEMPLATE_EPOUT_ADDR);
+  return USBD_OK;
+}
+
+/**
+  * @brief  USBD_TEMPLATE_DataIn
+  *         handle data IN Stage
+  * @param  pdev: device instance
+  * @param  epnum: endpoint index
+  * @retval status
+  */
+static uint8_t  USBD_TEMPLATE_DataIn(USBD_HandleTypeDef *pdev,
+                                     uint8_t epnum)
+{
+  // A bulk transfer is complete when the endpoint does on of the following:
+  // - Has transferred exactly the amount of data expected
+  // - Transfers a packet with a payload size less than wMaxPacketSize or transfers a zero-length packet
+  if (pdev->ep_in[epnum].total_length && !(pdev->ep_in[epnum].total_length % USB_FS_MAX_PACKET_SIZE))
+  {
+    pdev->ep_in[epnum].total_length = 0;
+    USBD_LL_Transmit(pdev, epnum, NULL, 0);
+  }
+  else
+    data_in_busy = false;
 
   return USBD_OK;
 }
 
 /**
-  * @brief  USBD_TEMPLATE_Setup
-  *         Handle the TEMPLATE specific requests
-  * @param  pdev: instance
-  * @param  req: usb requests
+  * @brief  USBD_TEMPLATE_DataOut
+  *         handle data OUT Stage
+  * @param  pdev: device instance
+  * @param  epnum: endpoint index
   * @retval status
   */
-static uint8_t  USBD_TEMPLATE_Setup(USBD_HandleTypeDef *pdev,
-                                    USBD_SetupReqTypedef *req)
+static uint8_t  USBD_TEMPLATE_DataOut(USBD_HandleTypeDef *pdev,
+                                      uint8_t epnum)
 {
-  USBD_StatusTypeDef ret = USBD_OK;
-
-  switch (req->bmRequest & USB_REQ_TYPE_MASK)
-  {
-    case USB_REQ_TYPE_CLASS :
-      switch (req->bRequest)
-      {
-        default:
-          USBD_CtlError(pdev, req);
-          ret = USBD_FAIL;
-          break;
-      }
-      break;
-
-    case USB_REQ_TYPE_STANDARD:
-      switch (req->bRequest)
-      {
-        default:
-          USBD_CtlError(pdev, req);
-          ret = USBD_FAIL;
-          break;
-      }
-      break;
-
-    default:
-      USBD_CtlError(pdev, req);
-      ret = USBD_FAIL;
-      break;
-  }
-
-  return ret;
+  size_t const bytes_received = USBD_LL_GetRxDataSize(pdev, epnum);
+  xStreamBufferSendFromISR(xStreamBuffer, data_out_buffer, bytes_received, NULL);
+  USBD_LL_PrepareReceive(pdev, TEMPLATE_EPOUT_ADDR, data_out_buffer, USB_FS_MAX_PACKET_SIZE);
+  return USBD_OK;
 }
-
 
 /**
   * @brief  USBD_TEMPLATE_GetCfgDesc
@@ -300,122 +289,10 @@ static uint8_t  *USBD_TEMPLATE_GetCfgDesc(uint16_t *length)
 * @param  length : pointer data length
 * @retval pointer to descriptor buffer
 */
-uint8_t  *USBD_TEMPLATE_DeviceQualifierDescriptor(uint16_t *length)
+static uint8_t  *USBD_TEMPLATE_GetDeviceQualifierDesc(uint16_t *length)
 {
   *length = sizeof(USBD_TEMPLATE_DeviceQualifierDesc);
   return USBD_TEMPLATE_DeviceQualifierDesc;
 }
-
-
-/**
-  * @brief  USBD_TEMPLATE_DataIn
-  *         handle data IN Stage
-  * @param  pdev: device instance
-  * @param  epnum: endpoint index
-  * @retval status
-  */
-static uint8_t  USBD_TEMPLATE_DataIn(USBD_HandleTypeDef *pdev,
-                                     uint8_t epnum)
-{
-
-  return USBD_OK;
-}
-
-/**
-  * @brief  USBD_TEMPLATE_EP0_RxReady
-  *         handle EP0 Rx Ready event
-  * @param  pdev: device instance
-  * @retval status
-  */
-static uint8_t  USBD_TEMPLATE_EP0_RxReady(USBD_HandleTypeDef *pdev)
-{
-
-  return USBD_OK;
-}
-/**
-  * @brief  USBD_TEMPLATE_EP0_TxReady
-  *         handle EP0 TRx Ready event
-  * @param  pdev: device instance
-  * @retval status
-  */
-static uint8_t  USBD_TEMPLATE_EP0_TxReady(USBD_HandleTypeDef *pdev)
-{
-
-  return USBD_OK;
-}
-/**
-  * @brief  USBD_TEMPLATE_SOF
-  *         handle SOF event
-  * @param  pdev: device instance
-  * @retval status
-  */
-static uint8_t  USBD_TEMPLATE_SOF(USBD_HandleTypeDef *pdev)
-{
-
-  return USBD_OK;
-}
-/**
-  * @brief  USBD_TEMPLATE_IsoINIncomplete
-  *         handle data ISO IN Incomplete event
-  * @param  pdev: device instance
-  * @param  epnum: endpoint index
-  * @retval status
-  */
-static uint8_t  USBD_TEMPLATE_IsoINIncomplete(USBD_HandleTypeDef *pdev, uint8_t epnum)
-{
-
-  return USBD_OK;
-}
-/**
-  * @brief  USBD_TEMPLATE_IsoOutIncomplete
-  *         handle data ISO OUT Incomplete event
-  * @param  pdev: device instance
-  * @param  epnum: endpoint index
-  * @retval status
-  */
-static uint8_t  USBD_TEMPLATE_IsoOutIncomplete(USBD_HandleTypeDef *pdev, uint8_t epnum)
-{
-
-  return USBD_OK;
-}
-/**
-  * @brief  USBD_TEMPLATE_DataOut
-  *         handle data OUT Stage
-  * @param  pdev: device instance
-  * @param  epnum: endpoint index
-  * @retval status
-  */
-static uint8_t  USBD_TEMPLATE_DataOut(USBD_HandleTypeDef *pdev,
-                                      uint8_t epnum)
-{
-
-  return USBD_OK;
-}
-
-/**
-* @brief  DeviceQualifierDescriptor
-*         return Device Qualifier descriptor
-* @param  length : pointer data length
-* @retval pointer to descriptor buffer
-*/
-uint8_t  *USBD_TEMPLATE_GetDeviceQualifierDesc(uint16_t *length)
-{
-  *length = sizeof(USBD_TEMPLATE_DeviceQualifierDesc);
-  return USBD_TEMPLATE_DeviceQualifierDesc;
-}
-
-/**
-  * @}
-  */
-
-
-/**
-  * @}
-  */
-
-
-/**
-  * @}
-  */
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
