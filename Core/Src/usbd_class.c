@@ -295,4 +295,22 @@ static uint8_t  *USBD_TEMPLATE_GetDeviceQualifierDesc(uint16_t *length)
   return USBD_TEMPLATE_DeviceQualifierDesc;
 }
 
+/**
+  * @brief  USBD_TEMPLATE_Transmit
+  *         transmit data over IN endpoint
+  * @param  pdev: device instance
+  * @param  buf: buffer to transmit
+  * @param  length: data length
+  * @retval status
+  */
+uint8_t  USBD_TEMPLATE_Transmit(USBD_HandleTypeDef *pdev, uint8_t* buf, uint16_t length)
+{
+  if (data_in_busy)
+    return USBD_BUSY;
+
+  data_in_busy = true;
+  pdev->ep_in[TEMPLATE_EPIN_ADDR & 0x7F].total_length = length;
+  return USBD_LL_Transmit(pdev, TEMPLATE_EPIN_ADDR, buf, length);
+}
+
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

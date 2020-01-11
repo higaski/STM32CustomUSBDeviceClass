@@ -1,6 +1,7 @@
 #MicroXplorer Configuration settings - do not modify
-FREERTOS.IPParameters=Tasks01,configENABLE_BACKWARD_COMPATIBILITY
-FREERTOS.Tasks01=defaultTask,24,128,StartDefaultTask,Default,NULL
+FREERTOS.FootprintOK=true
+FREERTOS.IPParameters=Tasks01,configENABLE_BACKWARD_COMPATIBILITY,FootprintOK
+FREERTOS.Tasks01=defaultTask,24,256,StartDefaultTask,Default,NULL,Dynamic,NULL,NULL;invertAsciiTask,40,768,StartInvertAsciiTask,Default,NULL,Dynamic,NULL,NULL
 FREERTOS.configENABLE_BACKWARD_COMPATIBILITY=0
 File.Version=6
 KeepUserPlacement=false

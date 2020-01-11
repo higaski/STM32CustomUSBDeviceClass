@@ -51,6 +51,7 @@ UART_HandleTypeDef huart3;
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 osThreadId_t defaultTaskHandle;
+osThreadId_t invertAsciiTaskHandle;
 /* USER CODE BEGIN PV */
 USBD_HandleTypeDef hUsbDeviceFS;
 StreamBufferHandle_t xStreamBuffer = NULL;
@@ -62,6 +63,7 @@ static void MX_GPIO_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_USB_OTG_FS_PCD_Init(void);
 void StartDefaultTask(void *argument);
+void StartInvertAsciiTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -69,7 +71,18 @@ void StartDefaultTask(void *argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+static void invert_case(uint8_t* buf, size_t len)
+{
+  for (size_t i = 0; i < len; ++i)
+  {
+    char const c = *buf;
+    if (c >= 'A' && c <= 'Z')
+      *buf = c + ('a' - 'A');
+    else if (c >= 'a' && c <= 'z')
+      *buf = c - ('a' - 'A');
+    buf++;
+  }
+}
 /* USER CODE END 0 */
 
 /**
@@ -129,10 +142,19 @@ int main(void)
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
   const osThreadAttr_t defaultTask_attributes = {
-      .name = "defaultTask",
-      .priority = (osPriority_t)osPriorityNormal,
-      .stack_size = 128};
+    .name = "defaultTask",
+    .priority = (osPriority_t) osPriorityNormal,
+    .stack_size = 256
+  };
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+
+  /* definition and creation of invertAsciiTask */
+  const osThreadAttr_t invertAsciiTask_attributes = {
+    .name = "invertAsciiTask",
+    .priority = (osPriority_t) osPriorityHigh,
+    .stack_size = 768
+  };
+  invertAsciiTaskHandle = osThreadNew(StartInvertAsciiTask, NULL, &invertAsciiTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -386,6 +408,37 @@ void StartDefaultTask(void *argument)
     HAL_GPIO_TogglePin(LD3_GPIO_Port, LD3_Pin);
   }
   /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_StartInvertAsciiTask */
+/**
+* @brief Function implementing the invertAsciiTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartInvertAsciiTask */
+void StartInvertAsciiTask(void *argument)
+{
+  /* USER CODE BEGIN StartInvertAsciiTask */
+  uint8_t buffer[512];
+  /* Infinite loop */
+  for(;;)
+  {
+    size_t count = xStreamBufferReceive(xStreamBuffer, buffer, 512, 2);
+    if(!count)
+      continue;
+
+    invert_case(buffer, count);
+
+    for(;;)
+    {
+      uint8_t status = USBD_TEMPLATE_Transmit(&hUsbDeviceFS, buffer, count);
+      if (status == USBD_OK)
+        break;
+      osDelay(2);
+    }
+  }
+  /* USER CODE END StartInvertAsciiTask */
 }
 
 /**
